@@ -1,0 +1,6 @@
+---
+# Master playbook to build the Kubernetes cluster
+
+- import_playbook: playbooks/playbook-01-prepare-nodes.yml
+- import_playbook: playbooks/playbook-02-control-plane.yml
+- import_playbook: playbooks/playbook-03-workers.yml

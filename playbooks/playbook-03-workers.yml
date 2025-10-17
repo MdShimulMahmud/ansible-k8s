@@ -1,0 +1,14 @@
+---
+- name: 3. Join worker nodes to the Kubernetes cluster
+  hosts: workers
+  become: yes
+  tasks:
+    - name: Get the join command from the fetched file
+      ansible.builtin.command: cat "{{ playbook_dir }}/../kubeadm_join_command.sh"
+      register: join_command_raw
+      delegate_to: localhost
+
+    - name: Join the node to the cluster
+      ansible.builtin.command: "{{ join_command_raw.stdout }}"
+      args:
+        creates: /etc/kubernetes/kubelet.conf

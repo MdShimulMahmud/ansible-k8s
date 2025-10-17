@@ -1,0 +1,49 @@
+---
+- name: 2. Set up the Kubernetes Control Plane
+  hosts: control_plane
+  become: yes
+  vars:
+    pod_network_cidr: "10.244.0.0/16"
+  tasks:
+    - name: Initialize the Kubernetes cluster
+      ansible.builtin.shell: "kubeadm init --pod-network-cidr={{ pod_network_cidr }} --upload-certs | tee /tmp/kubeadm_init.log"
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Create .kube directory for the user
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.kube"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Copy admin.conf to user's .kube directory
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "/home/{{ ansible_user }}/.kube/config"
+        remote_src: yes
+        owner: "{{ ansible_user }}"
+
+    - name: Install Calico CNI
+      ansible.builtin.command: "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml"
+      environment:
+        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+      args:
+        creates: /etc/cni/net.d/10-calico.conflist
+
+    - name: Store the join command
+      ansible.builtin.shell: "grep -A 2 'kubeadm join' /tmp/kubeadm_init.log | sed 's/\\\\//g' > /tmp/kubeadm_join_command.sh"
+      args:
+        creates: /tmp/kubeadm_join_command.sh
+
+    - name: Fetch the join command to the control node
+      ansible.builtin.fetch:
+        src: /tmp/kubeadm_join_command.sh
+        dest: "{{ playbook_dir }}/../"
+        flat: yes
+
+    - name: Fetch admin.conf to the control node
+      ansible.builtin.fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ playbook_dir }}/../"
+        flat: yes
