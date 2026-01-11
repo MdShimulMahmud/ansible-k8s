@@ -23,6 +23,7 @@ Before you begin, ensure you have the following:
 ---
 
 ## 📁 Project Structure
+
 ```
 ansible-k8s/
 ├── inventory.ini
@@ -31,7 +32,8 @@ ansible-k8s/
 └── playbooks/
     ├── playbook-01-prepare-nodes.yml
     ├── playbook-02-control-plane.yml
-    └── playbook-03-workers.yml
+    ├── playbook-03-workers.yml
+    └── playbook-04-addons.yml
 ```
 
 ---
@@ -59,4 +61,13 @@ This single command will build the entire cluster:
 
 ```ansible
 ansible-playbook -i inventory.ini site.yml
+```
+
+Notes:
+
+- Edit `group_vars/all.yml` to tune defaults before provisioning (e.g. `metallb_ip_range`).
+- To install addons separately after cluster is up, run:
+
+```bash
+ansible-playbook -i inventory.ini playbooks/playbook-04-addons.yml
 ```

@@ -1,0 +1,137 @@
+---
+- name: 4. Install Kubernetes Addons (Helm, Ingress-NGINX, MetalLB, Cert-Manager)
+  hosts: control_plane
+  become: true
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  tasks:
+    - name: Install Helm
+      ansible.builtin.shell: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+        executable: /bin/bash
+    - name: Add Helm repositories
+      ansible.builtin.shell: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>/dev/null || true
+        helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
+        helm repo update
+      register: helm_repo_result
+      retries: 3
+      delay: 5
+      until: helm_repo_result.rc == 0
+      changed_when: false
+
+    - name: Create namespaces
+      ansible.builtin.shell: |
+        kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+      register: namespace_result
+      failed_when: namespace_result.rc != 0
+      changed_when: "'created' in namespace_result.stdout or 'configured' in namespace_result.stdout"
+
+    - name: Wait for namespaces to be ready
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Install ingress-nginx
+      ansible.builtin.shell: |
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --set controller.service.type=LoadBalancer \
+          --set controller.service.externalTrafficPolicy=Local \
+          --timeout=5m \
+          --wait
+      register: ingress_result
+      retries: 2
+      delay: 10
+      until: ingress_result.rc == 0
+
+    - name: Wait 20s before MetalLB
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Install MetalLB using kubectl
+      ansible.builtin.shell: |
+        kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
+      register: metallb_install
+      retries: 3
+      delay: 10
+      until: metallb_install.rc == 0
+
+    - name: Wait for MetalLB controller to be ready
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Create MetalLB IPAddressPool
+      ansible.builtin.shell: |
+        kubectl apply -f - <<YAML
+        apiVersion: metallb.io/v1beta1
+        kind: IPAddressPool
+        metadata:
+          name: default
+          namespace: metallb-system
+        spec:
+          addresses:
+          - {{ metallb_ip_range }}
+        ---
+        apiVersion: metallb.io/v1beta1
+        kind: L2Advertisement
+        metadata:
+          name: l2advertisement
+          namespace: metallb-system
+        spec:
+          ipAddressPools:
+          - default
+        YAML
+      register: metallb_config_apply
+      retries: 5
+      delay: 5
+      until: metallb_config_apply.rc == 0
+      failed_when: metallb_config_apply.rc != 0
+      changed_when: metallb_config_apply.rc == 0
+
+    - name: Wait 20s before cert-manager
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Install cert-manager
+      ansible.builtin.shell: |
+        helm upgrade --install cert-manager jetstack/cert-manager \
+          --namespace cert-manager \
+          --set crds.enabled=true \
+          --timeout=5m \
+          --wait
+      register: certmanager_result
+      retries: 2
+      delay: 10
+      until: certmanager_result.rc == 0
+
+    - name: Verify installations
+      ansible.builtin.shell: |
+        echo "=== Namespaces ==="
+        kubectl get ns | grep -E '(ingress-nginx|metallb-system|cert-manager)'
+        echo ""
+        echo "=== Ingress-NGINX Pods ==="
+        kubectl get pods -n ingress-nginx
+        echo ""
+        echo "=== MetalLB Pods ==="
+        kubectl get pods -n metallb-system
+        echo ""
+        echo "=== Cert-Manager Pods ==="
+        kubectl get pods -n cert-manager
+        echo ""
+        echo "=== MetalLB IPAddressPool ==="
+        kubectl get ipaddresspool -n metallb-system 2>/dev/null || echo "Not yet created"
+      register: verify_output
+      changed_when: false
+      failed_when: false
+
+    - name: Display installation status
+      ansible.builtin.debug:
+        msg: |
+          ========== Kubernetes Addons Installation ==========
+          {{ verify_output.stdout }}
+          =====================================================
+          IP pool range: {{ metallb_ip_range }}

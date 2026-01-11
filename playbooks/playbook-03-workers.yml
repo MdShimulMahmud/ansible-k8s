@@ -1,14 +1,55 @@
 ---
 - name: 3. Join worker nodes to the Kubernetes cluster
   hosts: workers
-  become: yes
+  become: true
   tasks:
     - name: Get the join command from the fetched file
       ansible.builtin.command: cat "{{ playbook_dir }}/../kubeadm_join_command.sh"
       register: join_command_raw
       delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Ensure join command was retrieved
+      ansible.builtin.assert:
+        that:
+          - join_command_raw.stdout is defined
+          - join_command_raw.stdout | trim | length > 0
+        fail_msg: "kubeadm join command not found. Re-run control-plane play to generate it."
+
+    - name: Check if node is already joined
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
 
     - name: Join the node to the cluster
-      ansible.builtin.command: "{{ join_command_raw.stdout }}"
+      ansible.builtin.shell: "{{ join_command_raw.stdout }}"
+      when: not kubelet_conf.stat.exists
+      register: join_result
       args:
-        creates: /etc/kubernetes/kubelet.conf
+        executable: /bin/bash
+      failed_when: join_result.rc != 0
+      changed_when: join_result.rc == 0
+
+    - name: Get worker hostname
+      ansible.builtin.command: hostname
+      register: worker_hostname
+      changed_when: false
+
+    - name: Wait for node to appear in cluster
+      ansible.builtin.pause:
+        seconds: 10
+      when: not kubelet_conf.stat.exists
+
+    - name: Label worker nodes with sequential role names
+      ansible.builtin.shell: |
+        export KUBECONFIG={{ kubeconfig_path }}
+        kubectl label nodes {{ worker_hostname.stdout }} node-role.kubernetes.io/{{ inventory_hostname }}={{ inventory_hostname }} --overwrite
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      delegate_to: "{{ groups['control_plane'][0] }}"
+      retries: 3
+      delay: 5
+      register: label_result
+      until: label_result.rc == 0
+      changed_when: false

@@ -1,0 +1,1 @@
+kubeadm join 172.31.17.185:6443 --token sscyum.yyka6j6po3pajuxe --discovery-token-ca-cert-hash sha256:8b160fa9c0b2f6da1c4d25d8e754a1d51ef2b5192b3748a66e38e936e4e5ede6

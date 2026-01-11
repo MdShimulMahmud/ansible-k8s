@@ -1,14 +1,19 @@
 ---
 - name: 2. Set up the Kubernetes Control Plane
   hosts: control_plane
-  become: yes
-  vars:
-    pod_network_cidr: "10.244.0.0/16"
+  become: true
+
   tasks:
     - name: Initialize the Kubernetes cluster
-      ansible.builtin.shell: "kubeadm init --pod-network-cidr={{ pod_network_cidr }} --upload-certs | tee /tmp/kubeadm_init.log"
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubeadm init \
+          --pod-network-cidr={{ pod_network_cidr }} \
+          --kubernetes-version={{ k8s_cluster_version }} \
+          --upload-certs
       args:
         creates: /etc/kubernetes/admin.conf
+        executable: /bin/bash
 
     - name: Create .kube directory for the user
       ansible.builtin.file:
@@ -16,34 +21,71 @@
         state: directory
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
+        mode: "0700"
 
     - name: Copy admin.conf to user's .kube directory
       ansible.builtin.copy:
         src: /etc/kubernetes/admin.conf
-        dest: "/home/{{ ansible_user }}/.kube/config"
-        remote_src: yes
+        dest: "{{ kubeconfig_path }}"
+        remote_src: true
         owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
 
     - name: Install Calico CNI
-      ansible.builtin.command: "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml"
+      ansible.builtin.shell: kubectl apply -f {{ calico_manifest_url }}
       environment:
-        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+        KUBECONFIG: "{{ kubeconfig_path }}"
       args:
         creates: /etc/cni/net.d/10-calico.conflist
+        executable: /bin/bash
 
-    - name: Store the join command
-      ansible.builtin.shell: "grep -A 2 'kubeadm join' /tmp/kubeadm_init.log | sed 's/\\\\//g' > /tmp/kubeadm_join_command.sh"
-      args:
-        creates: /tmp/kubeadm_join_command.sh
+    - name: Generate worker join command
+      ansible.builtin.command: kubeadm token create --print-join-command --ttl 2h
+      register: kubeadm_join_command
+      changed_when: false
+
+    - name: Save the join command to file on control plane
+      ansible.builtin.copy:
+        dest: /tmp/kubeadm_join_command.sh
+        content: "{{ kubeadm_join_command.stdout | trim }}"
+        owner: root
+        group: root
+        mode: "0755"
 
     - name: Fetch the join command to the control node
       ansible.builtin.fetch:
         src: /tmp/kubeadm_join_command.sh
-        dest: "{{ playbook_dir }}/../"
-        flat: yes
+        dest: "{{ playbook_dir }}/../kubeadm_join_command.sh"
+        flat: true
 
-    - name: Fetch admin.conf to the control node
-      ansible.builtin.fetch:
-        src: /etc/kubernetes/admin.conf
-        dest: "{{ playbook_dir }}/../"
-        flat: yes
+    - name: Wait for control plane to stabilize
+      ansible.builtin.pause:
+        seconds: 15
+
+    - name: Get control plane hostname
+      ansible.builtin.command: hostname
+      register: master_hostname
+      changed_when: false
+
+    - name: Remove existing role labels from control plane
+      ansible.builtin.shell: |
+        kubectl label node {{ master_hostname.stdout }} {{ item }}- --overwrite 2>/dev/null || true
+      loop:
+        - node-role.kubernetes.io/control-plane
+        - node-role.kubernetes.io/master
+        - node-role.kubernetes.io/worker
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      changed_when: false
+      args:
+        executable: /bin/bash
+
+    - name: Add master role label to control plane
+      ansible.builtin.shell: |
+        kubectl label node {{ master_hostname.stdout }} node-role.kubernetes.io/master=master --overwrite
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      changed_when: false
+      args:
+        executable: /bin/bash

@@ -1,0 +1,27 @@
+---
+# Defaults for production-ready provisioning. Override in inventory or extra-vars.
+
+ansible_user: ubuntu
+
+# Path to admin kubeconfig on control-plane
+kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+
+# MetalLB IP pool (adjust to your network free range)
+metallb_ip_range: "172.31.0.100-172.31.255.200"
+
+# Kubernetes, CNI, Helm and other versions
+# Use a GA release that matches the upstream APT repo layout
+k8s_repo_version: "v1.35" # For APT repository path
+k8s_cluster_version: "1.35.0" # For kubeadm --kubernetes-version (semantic version without v prefix)
+calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml"
+metallb_manifest_url: "https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml"
+ingress_nginx_repo: "https://kubernetes.github.io/ingress-nginx"
+cert_manager_repo: "https://charts.jetstack.io"
+helm_get_script: "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
+
+# kubeadm pod network CIDR (adjust per your CNI choice)
+pod_network_cidr: "10.244.0.0/16"
+
+# Production hardening flags
+disable_swap: true
+hold_kubernetes_packages: true
