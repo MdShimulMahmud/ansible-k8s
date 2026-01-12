@@ -8,6 +8,8 @@
       ansible.builtin.shell: |
         set -o pipefail
         kubeadm init \
+          --apiserver-advertise-address={{ control_plane_endpoint }} \
+          --control-plane-endpoint={{ control_plane_endpoint }} \
           --pod-network-cidr={{ pod_network_cidr }} \
           --kubernetes-version={{ k8s_cluster_version }} \
           --upload-certs

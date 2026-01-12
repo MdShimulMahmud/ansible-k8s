@@ -1,13 +1,17 @@
 ---
 # Defaults for production-ready provisioning. Override in inventory or extra-vars.
 
-ansible_user: ubuntu
+ansible_user: devopsadmin
 
 # Path to admin kubeconfig on control-plane
 kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
 
+# Control plane endpoint (private IP of master node)
+control_plane_endpoint: "172.17.100.18"
+
 # MetalLB IP pool (adjust to your network free range)
-metallb_ip_range: "172.31.0.100-172.31.255.200"
+# metallb_ip_range: "103.204.80.245/32"
+metallb_ip_range: "172.17.100.200-172.17.100.210"
 
 # Kubernetes, CNI, Helm and other versions
 # Use a GA release that matches the upstream APT repo layout
@@ -20,7 +24,7 @@ cert_manager_repo: "https://charts.jetstack.io"
 helm_get_script: "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
 
 # kubeadm pod network CIDR (adjust per your CNI choice)
-pod_network_cidr: "10.244.0.0/16"
+pod_network_cidr: "192.168.0.0/16"
 
 # Production hardening flags
 disable_swap: true
