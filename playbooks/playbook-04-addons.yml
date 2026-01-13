@@ -13,7 +13,6 @@
         executable: /bin/bash
     - name: Add Helm repositories
       ansible.builtin.shell: |
-        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>/dev/null || true
         helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
         helm repo update
       register: helm_repo_result
@@ -24,7 +23,6 @@
 
     - name: Create namespaces
       ansible.builtin.shell: |
-        kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
         kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f -
         kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
       register: namespace_result
@@ -35,16 +33,11 @@
       ansible.builtin.pause:
         seconds: 5
 
-    - name: Install ingress-nginx
+    - name: Install ingress-nginx using manifest
       ansible.builtin.shell: |
-        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-          --namespace ingress-nginx \
-          --set controller.service.type=LoadBalancer \
-          --set controller.service.externalTrafficPolicy=Local \
-          --timeout=5m \
-          --wait
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/cloud/deploy.yaml
       register: ingress_result
-      retries: 2
+      retries: 3
       delay: 10
       until: ingress_result.rc == 0
 
@@ -101,7 +94,7 @@
         helm upgrade --install cert-manager jetstack/cert-manager \
           --namespace cert-manager \
           --set crds.enabled=true \
-          --timeout=5m \
+          --timeout=1m \
           --wait
       register: certmanager_result
       retries: 2
