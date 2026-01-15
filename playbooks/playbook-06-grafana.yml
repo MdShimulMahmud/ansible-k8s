@@ -90,7 +90,7 @@
           prometheus-community/kube-prometheus-stack \
           --namespace monitoring \
           --values /tmp/prometheus-values.yaml \
-          --wait --timeout=10m
+          --wait --timeout=5m
       register: prometheus_install
 
     - name: Wait for Prometheus and Grafana to be ready

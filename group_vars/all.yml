@@ -32,7 +32,7 @@ hold_kubernetes_packages: true
 
 # ArgoCD Configuration
 argocd_domain: "onprem-argocd.stpay.net"
-
+dashboard_domain: "onprem-dashboard.stpay.net"
 # Grafana Configuration
 grafana_domain: "onprem-grafana.stpay.net"
 grafana_admin_password: "sdklfhjdhLKHhdj2#LK$@!@"
