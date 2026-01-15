@@ -1,0 +1,191 @@
+---
+- name: 6 Install Prometheus and Grafana
+  hosts: control_plane
+  become: true
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+
+  tasks:
+    # ============= Validation =============
+    - name: Validate Prometheus and Grafana domains
+      ansible.builtin.assert:
+        that:
+          - prometheus_domain is defined
+          - grafana_domain is defined
+          - grafana_admin_password is defined
+        fail_msg: "Required variables not found in group_vars/all.yml"
+
+    # ============= Setup =============
+    - name: Add Prometheus Helm repository
+      ansible.builtin.shell: |
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo update
+      changed_when: false
+
+    - name: Create monitoring namespace
+      ansible.builtin.shell: |
+        kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+      changed_when: false
+
+    # ============= Installation =============
+    - name: Create Prometheus values file
+      ansible.builtin.copy:
+        dest: /tmp/prometheus-values.yaml
+        content: |
+          prometheus:
+            service:
+              type: ClusterIP
+            prometheusSpec:
+              replicas: 1
+              retention: 7d
+              storageSpec:
+                volumeClaimTemplate:
+                  spec:
+                    accessModes: ["ReadWriteOnce"]
+                    resources:
+                      requests:
+                        storage: 10Gi
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1Gi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+            ingress:
+              enabled: true
+              ingressClassName: nginx
+              annotations:
+                nginx.ingress.kubernetes.io/ssl-redirect: "false"
+              hosts:
+                - {{ prometheus_domain }}
+
+          alertmanager:
+            enabled: false
+
+          grafana:
+            replicas: 1
+            service:
+              type: ClusterIP
+            adminPassword: {{ grafana_admin_password }}
+            persistence:
+              enabled: true
+              size: 5Gi
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 100m
+                memory: 128Mi
+            ingress:
+              enabled: true
+              ingressClassName: nginx
+              annotations:
+                nginx.ingress.kubernetes.io/ssl-redirect: "false"
+              hosts:
+                - {{ grafana_domain }}
+            grafana.ini:
+              server:
+                root_url: http://{{ grafana_domain }}
+            datasources:
+              datasources.yaml:
+                apiVersion: 1
+                datasources:
+                - name: Prometheus
+                  type: prometheus
+                  url: http://kube-prometheus-stack-prometheus.monitoring:9090
+                  isDefault: true
+            dashboards:
+              default:
+                kubernetes-cluster:
+                  gnetId: 7249
+                  datasource: Prometheus
+                kubernetes-pods:
+                  gnetId: 6417
+                  datasource: Prometheus
+
+          kubeStateMetrics:
+            enabled: true
+
+          nodeExporter:
+            enabled: true
+
+          prometheusOperator:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 100m
+                memory: 128Mi
+
+    - name: Install Prometheus Stack
+      ansible.builtin.shell: |
+        helm upgrade --install kube-prometheus-stack \
+          prometheus-community/kube-prometheus-stack \
+          --namespace monitoring \
+          --values /tmp/prometheus-values.yaml \
+          --wait --timeout=10m
+      register: prometheus_install
+
+    - name: Wait for Prometheus and Grafana to be ready
+      ansible.builtin.pause:
+        seconds: 15
+
+    # ============= Display Results =============
+    - name: Display Prometheus and Grafana installation summary
+      ansible.builtin.debug:
+        msg: |
+          ================================================
+          Prometheus & Grafana Installation Complete!
+          ================================================
+
+          📈 Prometheus URL: http://{{ prometheus_domain }}
+          📊 Grafana URL: http://{{ grafana_domain }}
+          👤 Grafana Username: admin
+          🔐 Grafana Password: {{ grafana_admin_password }}
+
+          ================================================
+          Ingress Configuration
+          ================================================
+
+          Prometheus:
+            Host: {{ prometheus_domain }}
+            Namespace: monitoring
+            Service: kube-prometheus-stack-prometheus
+            Port: 9090
+
+          Grafana:
+            Host: {{ grafana_domain }}
+            Namespace: monitoring
+            Service: kube-prometheus-stack-grafana
+            Port: 80
+
+          ================================================
+          Pre-configured Dashboards
+          ================================================
+
+          ✅ Kubernetes Cluster (7249)
+          ✅ Kubernetes Pods (6417)
+
+          ================================================
+
+    - name: Save Prometheus and Grafana credentials
+      ansible.builtin.copy:
+        dest: /tmp/prometheus-grafana-credentials.txt
+        content: |
+          Prometheus & Grafana Credentials
+          ==================================
+
+          Prometheus URL: http://{{ prometheus_domain }}
+
+          Grafana URL: http://{{ grafana_domain }}
+          Username: admin
+          Password: {{ grafana_admin_password }}
+
+          Data Retention: 7 days
+          Storage: 10Gi
+
+      delegate_to: localhost
+      become: false
