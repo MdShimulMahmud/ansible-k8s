@@ -29,3 +29,13 @@ pod_network_cidr: "192.168.0.0/16"
 # Production hardening flags
 disable_swap: true
 hold_kubernetes_packages: true
+
+# ArgoCD Configuration
+argocd_domain: "onprem-argocd.stpay.net"
+
+# Grafana Configuration
+grafana_domain: "onprem-grafana.stpay.net"
+grafana_admin_password: "sdklfhjdhLKHhdj2#LK$@!@"
+
+# Prometheus Configuration
+prometheus_domain: "onprem-prometheus.stpay.net"
