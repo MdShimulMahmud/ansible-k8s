@@ -35,23 +35,6 @@
           prometheus:
             service:
               type: ClusterIP
-            prometheusSpec:
-              replicas: 1
-              retention: 7d
-              storageSpec:
-                volumeClaimTemplate:
-                  spec:
-                    accessModes: ["ReadWriteOnce"]
-                    resources:
-                      requests:
-                        storage: 10Gi
-              resources:
-                limits:
-                  cpu: 500m
-                  memory: 1Gi
-                requests:
-                  cpu: 250m
-                  memory: 512Mi
             ingress:
               enabled: true
               ingressClassName: nginx
@@ -68,16 +51,6 @@
             service:
               type: ClusterIP
             adminPassword: {{ grafana_admin_password }}
-            persistence:
-              enabled: true
-              size: 5Gi
-            resources:
-              limits:
-                cpu: 200m
-                memory: 256Mi
-              requests:
-                cpu: 100m
-                memory: 128Mi
             ingress:
               enabled: true
               ingressClassName: nginx
@@ -110,15 +83,6 @@
 
           nodeExporter:
             enabled: true
-
-          prometheusOperator:
-            resources:
-              limits:
-                cpu: 200m
-                memory: 256Mi
-              requests:
-                cpu: 100m
-                memory: 128Mi
 
     - name: Install Prometheus Stack
       ansible.builtin.shell: |
