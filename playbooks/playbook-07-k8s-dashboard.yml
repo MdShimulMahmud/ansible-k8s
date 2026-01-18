@@ -13,99 +13,93 @@
           - dashboard_domain is defined
         fail_msg: "dashboard_domain not found in group_vars/all.yml"
 
-    # ============= Setup =============
-    - name: Add Kubernetes Dashboard Helm repository
-      ansible.builtin.command:
-        cmd: helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
-      register: repo_add_output
-      changed_when: "'has been added' in repo_add_output.stdout"
-      failed_when: repo_add_output.rc != 0 and 'already exists' not in repo_add_output.stderr
-
-    - name: Update Helm repositories
-      ansible.builtin.command:
-        cmd: helm repo update
-      register: repo_update_output
-      changed_when: "'Update Complete' in repo_update_output.stdout"
-
+    # ============= Setup Namespace =============
     - name: Create kubernetes-dashboard namespace
-      ansible.builtin.command:
-        cmd: kubectl create namespace kubernetes-dashboard
-      register: ns_result
-      changed_when: "'created' in ns_result.stdout"
-      failed_when: ns_result.rc != 0 and 'already exists' not in ns_result.stderr
+      kubernetes.core.k8s:
+        name: kubernetes-dashboard
+        api_version: v1
+        kind: Namespace
+        state: present
 
     # ============= Installation =============
-    - name: Deploy Kubernetes Dashboard v2.7.0 (Stable)
+    - name: Deploy Kubernetes Dashboard v2.7.0
       ansible.builtin.shell: |
         kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
-      changed_when: false
-
-    - name: Wait for dashboard deployment
-      ansible.builtin.pause:
-        seconds: 10
+      register: dashboard_install
+      changed_when: "'created' in dashboard_install.stdout or 'unchanged' not in dashboard_install.stdout"
 
     # ============= Create Admin User =============
     - name: Create admin user and cluster role binding
-      ansible.builtin.shell: |
-        kubectl apply -f - <<YAML
-        apiVersion: v1
-        kind: ServiceAccount
-        metadata:
-          name: admin-user
-          namespace: kubernetes-dashboard
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRoleBinding
-        metadata:
-          name: admin-user
-        roleRef:
-          apiGroup: rbac.authorization.k8s.io
-          kind: ClusterRole
-          name: cluster-admin
-        subjects:
-        - kind: ServiceAccount
-          name: admin-user
-          namespace: kubernetes-dashboard
-        YAML
-      changed_when: false
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: admin-user
+            namespace: kubernetes-dashboard
 
-    - name: Wait for admin user to be ready
-      ansible.builtin.pause:
-        seconds: 5
+    - name: Create ClusterRoleBinding for admin user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: admin-user
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+            - kind: ServiceAccount
+              name: admin-user
+              namespace: kubernetes-dashboard
 
-    - name: Get Dashboard admin token (permanent - 10 years)
+    # ============= Create Ingress =============
+    - name: Create Dashboard Ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: kubernetes-dashboard
+            namespace: kubernetes-dashboard
+            annotations:
+              nginx.ingress.kubernetes.io/ssl-redirect: "false"
+              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+          spec:
+            ingressClassName: nginx
+            rules:
+              - host: "{{ dashboard_domain }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: kubernetes-dashboard
+                          port:
+                            number: 443
+
+    # ============= Wait for Deployment =============
+    - name: Wait for Kubernetes Dashboard deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: kubernetes-dashboard
+        namespace: kubernetes-dashboard
+        wait: true
+        wait_sleep: 10
+        wait_timeout: 300
+      register: deploy_status
+
+    # ============= Token Generation =============
+    - name: Get Dashboard admin token
       ansible.builtin.shell: |
         kubectl -n kubernetes-dashboard create token admin-user --duration=87600h
       register: dashboard_token
-      changed_when: false
-      retries: 5
-      delay: 2
-    # ============= Create Ingress =============
-    - name: Create Dashboard Ingress
-      ansible.builtin.shell: |
-        kubectl apply -f - <<YAML
-        apiVersion: networking.k8s.io/v1
-        kind: Ingress
-        metadata:
-          name: kubernetes-dashboard
-          namespace: kubernetes-dashboard
-          annotations:
-            nginx.ingress.kubernetes.io/ssl-redirect: "false"
-            nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-        spec:
-          ingressClassName: nginx
-          rules:
-          - host: {{ dashboard_domain }}
-            http:
-              paths:
-              - path: /
-                pathType: Prefix
-                backend:
-                  service:
-                    name: kubernetes-dashboard
-                    port:
-                      number: 443
-        YAML
       changed_when: false
 
     # ============= Display Results =============
@@ -152,6 +146,5 @@
           2. Select "Token" option at login page
           3. Paste the token
           4. Click "Sign In"
-
       delegate_to: localhost
       become: false
