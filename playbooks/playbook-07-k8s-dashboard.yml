@@ -38,12 +38,7 @@
             enabled: false
           app:
             ingress:
-              enabled: true
-              ingressClassName: nginx
-              hosts:
-                - {{ dashboard_domain }}
-              annotations:
-                nginx.ingress.kubernetes.io/ssl-redirect: "false"
+              enabled: false
           api:
             containers:
               args:
@@ -61,10 +56,32 @@
       register: dashboard_install
 
     # ============= Create Ingress =============
-    # Ingress is now managed by the Helm chart
-    - name: Wait for Dashboard to be ready
-      ansible.builtin.pause:
-        seconds: 10
+    - name: Create Dashboard Ingress
+      ansible.builtin.shell: |
+        kubectl apply -f - <<YAML
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: kubernetes-dashboard
+          namespace: kubernetes-dashboard
+          annotations:
+            nginx.ingress.kubernetes.io/ssl-redirect: "false"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+        spec:
+          ingressClassName: nginx
+          rules:
+          - host: {{ dashboard_domain }}
+            http:
+              paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: kubernetes-dashboard-nginx
+                    port:
+                      number: 80
+        YAML
+      changed_when: false
 
     # ============= Create Admin User =============
     - name: Create Dashboard admin resources
