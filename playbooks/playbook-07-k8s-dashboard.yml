@@ -15,76 +15,45 @@
 
     # ============= Setup =============
     - name: Add Kubernetes Dashboard Helm repository
-      ansible.builtin.shell: |
-        helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
-        helm repo update
-      changed_when: false
+      ansible.builtin.command:
+        cmd: helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
+      register: repo_add_output
+      changed_when: "'has been added' in repo_add_output.stdout"
+      failed_when: repo_add_output.rc != 0 and 'already exists' not in repo_add_output.stderr
+
+    - name: Update Helm repositories
+      ansible.builtin.command:
+        cmd: helm repo update
+      register: repo_update_output
+      changed_when: "'Update Complete' in repo_update_output.stdout"
 
     - name: Create kubernetes-dashboard namespace
-      ansible.builtin.shell: |
-        kubectl create namespace kubernetes-dashboard --dry-run=client -o yaml | kubectl apply -f -
+      ansible.builtin.command:
+        cmd: kubectl create namespace kubernetes-dashboard --dry-run=client -o yaml
+      register: namespace_yaml
+      changed_when: false
+
+    - name: Apply kubernetes-dashboard namespace
+      ansible.builtin.shell:
+        cmd: "{{ namespace_yaml.stdout }} | kubectl apply -f -"
       changed_when: false
 
     # ============= Installation =============
-    - name: Uninstall existing Kubernetes Dashboard (if any)
-      ansible.builtin.shell: |
-        helm uninstall kubernetes-dashboard --namespace kubernetes-dashboard || true
-      changed_when: false
-
-    - name: Wait for cleanup
-      ansible.builtin.pause:
-        seconds: 10
-
-    - name: Create Dashboard values file
-      ansible.builtin.copy:
-        dest: /tmp/dashboard-values.yaml
-        content: |
-          metricsScraper:
-            enabled: true
-
     - name: Install Kubernetes Dashboard
-      ansible.builtin.shell: |
-        helm upgrade --install kubernetes-dashboard \
-          kubernetes-dashboard/kubernetes-dashboard \
-          --namespace kubernetes-dashboard \
-          --values /tmp/dashboard-values.yaml
-      register: dashboard_install
+      ansible.builtin.command:
+        cmd: >
+          helm upgrade --install kubernetes-dashboard
+          kubernetes-dashboard/kubernetes-dashboard
+          --create-namespace
+          --namespace kubernetes-dashboard
+      register: dashboard_install_output
+      changed_when: "'STATUS: deployed' in dashboard_install_output.stdout or 'STATUS: created' in dashboard_install_output.stdout"
 
-    - name: Wait for Dashboard pods to start
-      ansible.builtin.shell: |
-        kubectl wait --for=condition=ready pod \
-          -l app.kubernetes.io/instance=kubernetes-dashboard \
-          -n kubernetes-dashboard \
-          --timeout=300s || true
+    - name: Wait for Dashboard pods to be ready
+      ansible.builtin.command:
+        cmd: kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=kubernetes-dashboard -n kubernetes-dashboard --timeout=300s
       changed_when: false
-
-    # ============= Create Ingress =============
-    - name: Create Dashboard Ingress
-      ansible.builtin.shell: |
-        kubectl apply -f - <<YAML
-        apiVersion: networking.k8s.io/v1
-        kind: Ingress
-        metadata:
-          name: kubernetes-dashboard
-          namespace: kubernetes-dashboard
-          annotations:
-            nginx.ingress.kubernetes.io/ssl-redirect: "false"
-            nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-        spec:
-          ingressClassName: nginx
-          rules:
-          - host: {{ dashboard_domain }}
-            http:
-              paths:
-              - path: /
-                pathType: Prefix
-                backend:
-                  service:
-                    name: kubernetes-dashboard-kong-proxy
-                    port:
-                      number: 443
-        YAML
-      changed_when: false
+      ignore_errors: true
 
     # ============= Create Admin User =============
     - name: Create Dashboard admin resources
@@ -112,45 +81,52 @@
         apiVersion: v1
         kind: Secret
         metadata:
-          name: admin-user-token
+          name: admin-user
           namespace: kubernetes-dashboard
           annotations:
-            kubernetes.io/service-account.name: admin-user
+            kubernetes.io/service-account.name: "admin-user"
         type: kubernetes.io/service-account-token
         YAML
       changed_when: false
 
-    - name: Wait for Dashboard token secret
+    - name: Wait for admin token secret
       ansible.builtin.pause:
-        seconds: 5
+        seconds: 10
 
-    - name: Ensure long-lived admin token secret
+    - name: Get Dashboard admin token
       ansible.builtin.shell: |
-        kubectl apply -f - <<YAML
-        apiVersion: v1
-        kind: Secret
-        metadata:
-          name: admin-user-perm-token
-          namespace: kubernetes-dashboard
-          annotations:
-            kubernetes.io/service-account.name: admin-user
-        type: kubernetes.io/service-account-token
-        YAML
-      changed_when: false
-
-    - name: Get Dashboard admin token (permanent)
-      ansible.builtin.shell: |
-        set -e
-        if kubectl -n kubernetes-dashboard get secret admin-user-perm-token >/dev/null 2>&1; then
-          secret_name=admin-user-perm-token
-        else
-          secret_name=$(kubectl -n kubernetes-dashboard get secret | awk '/admin-user-token/{print $1; exit}')
-        fi
-        kubectl -n kubernetes-dashboard get secret "$secret_name" -o jsonpath="{.data.token}" | base64 -d
+        kubectl -n kubernetes-dashboard get secret admin-user -o jsonpath="{.data.token}" | base64 -d
       register: dashboard_token
       changed_when: false
       retries: 5
-      delay: 5
+      delay: 2
+
+    # ============= Create Ingress =============
+    - name: Create Dashboard Ingress
+      ansible.builtin.shell: |
+        kubectl apply -f - <<YAML
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: kubernetes-dashboard
+          namespace: kubernetes-dashboard
+          annotations:
+            nginx.ingress.kubernetes.io/ssl-redirect: "false"
+        spec:
+          ingressClassName: nginx
+          rules:
+          - host: {{ dashboard_domain }}
+            http:
+              paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: kubernetes-dashboard
+                    port:
+                      number: 80
+        YAML
+      changed_when: false
 
     # ============= Display Results =============
     - name: Display Kubernetes Dashboard installation summary
@@ -169,13 +145,13 @@
           Token: {{ dashboard_token.stdout }}
 
           ================================================
-          Ingress Configuration
+          How to Access
           ================================================
 
-          Host: {{ dashboard_domain }}
-          Namespace: kubernetes-dashboard
-          Service: kubernetes-dashboard-kong-proxy
-          Protocol: HTTP frontend, HTTPS backend
+          1. Open browser: http://{{ dashboard_domain }}
+          2. Click "Token" option at login
+          3. Paste the token above
+          4. Click "Sign In"
 
           ================================================
 
@@ -190,6 +166,12 @@
 
           Admin Token:
           {{ dashboard_token.stdout }}
+
+          How to Access:
+          1. Open the URL above in your browser
+          2. Select "Token" option at login page
+          3. Paste the token
+          4. Click "Sign In"
 
       delegate_to: localhost
       become: false
