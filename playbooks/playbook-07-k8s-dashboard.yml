@@ -30,11 +30,15 @@
       ansible.builtin.copy:
         dest: /tmp/dashboard-values.yaml
         content: |
-          service:
-            type: ClusterIP
+          app:
+            ingress:
+              enabled: false
+          api:
+            containers:
+              args:
+                - --token-ttl=0
           metricsScraper:
             enabled: true
-          protocolHttp: true
 
     - name: Install Kubernetes Dashboard
       ansible.builtin.shell: |
@@ -56,7 +60,7 @@
           namespace: kubernetes-dashboard
           annotations:
             nginx.ingress.kubernetes.io/ssl-redirect: "false"
-            nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
         spec:
           ingressClassName: nginx
           rules:
@@ -67,9 +71,9 @@
                 pathType: Prefix
                 backend:
                   service:
-                    name: kubernetes-dashboard-kong-proxy
+                    name: kubernetes-dashboard-web
                     port:
-                      number: 443
+                      number: 8000
         YAML
       changed_when: false
 
@@ -147,7 +151,7 @@
           Kubernetes Dashboard Installation Complete!
           ================================================
 
-          🎛️  Dashboard URL: https://{{ dashboard_domain }}
+          🎛️  Dashboard URL: http://{{ dashboard_domain }}
 
           ================================================
           Access Token
@@ -161,8 +165,8 @@
 
           Host: {{ dashboard_domain }}
           Namespace: kubernetes-dashboard
-          Service: kubernetes-dashboard-kong-proxy
-          Port: 443
+          Service: kubernetes-dashboard-web
+          Port: 8000
 
           ================================================
 
@@ -173,7 +177,7 @@
           Kubernetes Dashboard Credentials
           ==================================
 
-          URL: https://{{ dashboard_domain }}
+          URL: http://{{ dashboard_domain }}
 
           Admin Token:
           {{ dashboard_token.stdout }}
