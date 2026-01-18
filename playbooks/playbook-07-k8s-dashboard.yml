@@ -42,9 +42,16 @@
         helm upgrade --install kubernetes-dashboard \
           kubernetes-dashboard/kubernetes-dashboard \
           --namespace kubernetes-dashboard \
-          --values /tmp/dashboard-values.yaml \
-          --wait --timeout=5m
+          --values /tmp/dashboard-values.yaml
       register: dashboard_install
+
+    - name: Wait for Dashboard pods to start
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=ready pod \
+          -l app.kubernetes.io/instance=kubernetes-dashboard \
+          -n kubernetes-dashboard \
+          --timeout=300s || true
+      changed_when: false
 
     # ============= Create Ingress =============
     - name: Create Dashboard Ingress
