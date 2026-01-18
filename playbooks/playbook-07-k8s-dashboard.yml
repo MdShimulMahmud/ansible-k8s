@@ -26,14 +26,19 @@
       changed_when: false
 
     # ============= Installation =============
+    - name: Uninstall existing Kubernetes Dashboard (if any)
+      ansible.builtin.shell: |
+        helm uninstall kubernetes-dashboard --namespace kubernetes-dashboard || true
+      changed_when: false
+
+    - name: Wait for cleanup
+      ansible.builtin.pause:
+        seconds: 10
+
     - name: Create Dashboard values file
       ansible.builtin.copy:
         dest: /tmp/dashboard-values.yaml
         content: |
-          api:
-            containers:
-              args:
-                - --token-ttl=0
           metricsScraper:
             enabled: true
 
