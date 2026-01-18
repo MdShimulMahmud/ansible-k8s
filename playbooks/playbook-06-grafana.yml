@@ -61,6 +61,7 @@
             grafana.ini:
               server:
                 root_url: http://{{ grafana_domain }}
+            defaultDatasourceEnabled: false
             datasources:
               datasources.yaml:
                 apiVersion: 1
@@ -69,6 +70,9 @@
                   type: prometheus
                   url: http://kube-prometheus-stack-prometheus.monitoring:9090
                   isDefault: true
+                  access: proxy
+                  jsonData:
+                    timeInterval: 30s
             dashboards:
               default:
                 kubernetes-cluster:
