@@ -40,14 +40,63 @@
         kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
       changed_when: false
 
-    - name: Get Dashboard admin token
+    - name: Wait for dashboard deployment
+      ansible.builtin.pause:
+        seconds: 10
+
+    # ============= TLS for Ingress =============
+    - name: Generate self-signed TLS cert for dashboard (if not present)
       ansible.builtin.shell: |
-        kubectl -n kubernetes-dashboard get secret admin-user -o jsonpath="{.data.token}" | base64 -d
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+          -subj "/CN={{ dashboard_domain }}" \
+          -keyout /tmp/dashboard.key -out /tmp/dashboard.crt
+      args:
+        creates: /tmp/dashboard.crt
+      changed_when: false
+
+    - name: Create/Update dashboard TLS secret
+      ansible.builtin.shell: |
+        kubectl -n kubernetes-dashboard create secret tls dashboard-tls \
+          --cert=/tmp/dashboard.crt --key=/tmp/dashboard.key \
+          --dry-run=client -o yaml | kubectl apply -f -
+      changed_when: false
+
+    # ============= Create Admin User =============
+    - name: Create admin user and cluster role binding
+      ansible.builtin.shell: |
+        kubectl apply -f - <<YAML
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: admin-user
+          namespace: kubernetes-dashboard
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: admin-user
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-admin
+        subjects:
+        - kind: ServiceAccount
+          name: admin-user
+          namespace: kubernetes-dashboard
+        YAML
+      changed_when: false
+
+    - name: Wait for admin user to be ready
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Get Dashboard admin token (permanent - 10 years)
+      ansible.builtin.shell: |
+        kubectl -n kubernetes-dashboard create token admin-user --duration=87600h
       register: dashboard_token
       changed_when: false
       retries: 5
       delay: 2
-
     # ============= Create Ingress =============
     - name: Create Dashboard Ingress
       ansible.builtin.shell: |
@@ -58,10 +107,14 @@
           name: kubernetes-dashboard
           namespace: kubernetes-dashboard
           annotations:
-            nginx.ingress.kubernetes.io/ssl-redirect: "false"
+            nginx.ingress.kubernetes.io/ssl-redirect: "true"
             nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         spec:
           ingressClassName: nginx
+          tls:
+          - hosts:
+            - {{ dashboard_domain }}
+            secretName: dashboard-tls
           rules:
           - host: {{ dashboard_domain }}
             http:
@@ -84,7 +137,7 @@
           Kubernetes Dashboard Installation Complete!
           ================================================
 
-          🎛️  Dashboard URL: http://{{ dashboard_domain }}
+          🎛️  Dashboard URL: https://{{ dashboard_domain }}
 
           ================================================
           Access Token
@@ -96,7 +149,7 @@
           How to Access
           ================================================
 
-          1. Open browser: http://{{ dashboard_domain }}
+          1. Open browser: https://{{ dashboard_domain }}
           2. Click "Token" option at login
           3. Paste the token above
           4. Click "Sign In"
@@ -110,7 +163,7 @@
           Kubernetes Dashboard Credentials
           ==================================
 
-          URL: http://{{ dashboard_domain }}
+          URL: https://{{ dashboard_domain }}
 
           Admin Token:
           {{ dashboard_token.stdout }}
