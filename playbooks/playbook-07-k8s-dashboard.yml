@@ -133,7 +133,7 @@
         else
           secret_name=$(kubectl -n kubernetes-dashboard get secret | awk '/admin-user-token/{print $1; exit}')
         fi
-        kubectl -n kubernetes-dashboard get secret "$secret_name" -o go-template='{{.data.token | base64decode}}'
+        kubectl -n kubernetes-dashboard get secret "$secret_name" -o jsonpath="{.data.token}" | base64 -d
       register: dashboard_token
       changed_when: false
       retries: 5
