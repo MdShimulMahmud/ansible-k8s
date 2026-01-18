@@ -37,6 +37,8 @@
             containers:
               args:
                 - --token-ttl=0
+          auth:
+            enabled: true
           metricsScraper:
             enabled: true
 
@@ -60,7 +62,7 @@
           namespace: kubernetes-dashboard
           annotations:
             nginx.ingress.kubernetes.io/ssl-redirect: "false"
-            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         spec:
           ingressClassName: nginx
           rules:
@@ -71,9 +73,9 @@
                 pathType: Prefix
                 backend:
                   service:
-                    name: kubernetes-dashboard-web
+                    name: kubernetes-dashboard-kong-proxy
                     port:
-                      number: 8000
+                      number: 443
         YAML
       changed_when: false
 
@@ -151,7 +153,7 @@
           Kubernetes Dashboard Installation Complete!
           ================================================
 
-          🎛️  Dashboard URL: http://{{ dashboard_domain }}
+          🎛️  Dashboard URL: https://{{ dashboard_domain }}
 
           ================================================
           Access Token
@@ -165,8 +167,8 @@
 
           Host: {{ dashboard_domain }}
           Namespace: kubernetes-dashboard
-          Service: kubernetes-dashboard-web
-          Port: 8000
+          Service: kubernetes-dashboard-kong-proxy
+          Port: 443
 
           ================================================
 
@@ -177,7 +179,7 @@
           Kubernetes Dashboard Credentials
           ==================================
 
-          URL: http://{{ dashboard_domain }}
+          URL: https://{{ dashboard_domain }}
 
           Admin Token:
           {{ dashboard_token.stdout }}
