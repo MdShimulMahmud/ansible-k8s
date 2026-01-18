@@ -111,10 +111,29 @@
       ansible.builtin.pause:
         seconds: 5
 
-    - name: Get Dashboard admin token
+    - name: Ensure long-lived admin token secret
       ansible.builtin.shell: |
-        kubectl get secret admin-user-token -n kubernetes-dashboard \
-          -o jsonpath="{.data.token}" | base64 -d
+        kubectl apply -f - <<YAML
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: admin-user-perm-token
+          namespace: kubernetes-dashboard
+          annotations:
+            kubernetes.io/service-account.name: admin-user
+        type: kubernetes.io/service-account-token
+        YAML
+      changed_when: false
+
+    - name: Get Dashboard admin token (permanent)
+      ansible.builtin.shell: |
+        set -e
+        if kubectl -n kubernetes-dashboard get secret admin-user-perm-token >/dev/null 2>&1; then
+          secret_name=admin-user-perm-token
+        else
+          secret_name=$(kubectl -n kubernetes-dashboard get secret | awk '/admin-user-token/{print $1; exit}')
+        fi
+        kubectl -n kubernetes-dashboard get secret "$secret_name" -o go-template='{{.data.token | base64decode}}'
       register: dashboard_token
       changed_when: false
       retries: 5
@@ -128,7 +147,7 @@
           Kubernetes Dashboard Installation Complete!
           ================================================
 
-          🎛️  Dashboard URL: http://{{ dashboard_domain }}
+          🎛️  Dashboard URL: https://{{ dashboard_domain }}
 
           ================================================
           Access Token
@@ -142,8 +161,8 @@
 
           Host: {{ dashboard_domain }}
           Namespace: kubernetes-dashboard
-          Service: kubernetes-dashboard
-          Port: 80
+          Service: kubernetes-dashboard-kong-proxy
+          Port: 443
 
           ================================================
 
@@ -154,7 +173,7 @@
           Kubernetes Dashboard Credentials
           ==================================
 
-          URL: http://{{ dashboard_domain }}
+          URL: https://{{ dashboard_domain }}
 
           Admin Token:
           {{ dashboard_token.stdout }}
