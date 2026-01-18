@@ -44,23 +44,6 @@
       ansible.builtin.pause:
         seconds: 10
 
-    # ============= TLS for Ingress =============
-    - name: Generate self-signed TLS cert for dashboard (if not present)
-      ansible.builtin.shell: |
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-          -subj "/CN={{ dashboard_domain }}" \
-          -keyout /tmp/dashboard.key -out /tmp/dashboard.crt
-      args:
-        creates: /tmp/dashboard.crt
-      changed_when: false
-
-    - name: Create/Update dashboard TLS secret
-      ansible.builtin.shell: |
-        kubectl -n kubernetes-dashboard create secret tls dashboard-tls \
-          --cert=/tmp/dashboard.crt --key=/tmp/dashboard.key \
-          --dry-run=client -o yaml | kubectl apply -f -
-      changed_when: false
-
     # ============= Create Admin User =============
     - name: Create admin user and cluster role binding
       ansible.builtin.shell: |
@@ -107,14 +90,10 @@
           name: kubernetes-dashboard
           namespace: kubernetes-dashboard
           annotations:
-            nginx.ingress.kubernetes.io/ssl-redirect: "true"
+            nginx.ingress.kubernetes.io/ssl-redirect: "false"
             nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         spec:
           ingressClassName: nginx
-          tls:
-          - hosts:
-            - {{ dashboard_domain }}
-            secretName: dashboard-tls
           rules:
           - host: {{ dashboard_domain }}
             http:
@@ -137,7 +116,7 @@
           Kubernetes Dashboard Installation Complete!
           ================================================
 
-          🎛️  Dashboard URL: https://{{ dashboard_domain }}
+          🎛️  Dashboard URL: http://{{ dashboard_domain }}
 
           ================================================
           Access Token
@@ -149,7 +128,7 @@
           How to Access
           ================================================
 
-          1. Open browser: https://{{ dashboard_domain }}
+          1. Open browser: http://{{ dashboard_domain }}
           2. Click "Token" option at login
           3. Paste the token above
           4. Click "Sign In"
@@ -163,7 +142,7 @@
           Kubernetes Dashboard Credentials
           ==================================
 
-          URL: https://{{ dashboard_domain }}
+          URL: http://{{ dashboard_domain }}
 
           Admin Token:
           {{ dashboard_token.stdout }}
