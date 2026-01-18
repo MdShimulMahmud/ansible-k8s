@@ -35,59 +35,10 @@
       failed_when: ns_result.rc != 0 and 'already exists' not in ns_result.stderr
 
     # ============= Installation =============
-    - name: Install Kubernetes Dashboard
-      ansible.builtin.command:
-        cmd: >
-          helm upgrade --install kubernetes-dashboard
-          kubernetes-dashboard/kubernetes-dashboard
-          --create-namespace
-          --namespace kubernetes-dashboard
-      register: dashboard_install_output
-      changed_when: "'STATUS: deployed' in dashboard_install_output.stdout or 'STATUS: created' in dashboard_install_output.stdout"
-
-    - name: Wait for Dashboard pods to be ready
-      ansible.builtin.command:
-        cmd: kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=kubernetes-dashboard -n kubernetes-dashboard --timeout=300s
-      changed_when: false
-      ignore_errors: true
-
-    # ============= Create Admin User =============
-    - name: Create Dashboard admin resources
+    - name: Deploy Kubernetes Dashboard v2.7.0 (Stable)
       ansible.builtin.shell: |
-        kubectl apply -f - <<YAML
-        apiVersion: v1
-        kind: ServiceAccount
-        metadata:
-          name: admin-user
-          namespace: kubernetes-dashboard
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRoleBinding
-        metadata:
-          name: admin-user
-        roleRef:
-          apiGroup: rbac.authorization.k8s.io
-          kind: ClusterRole
-          name: cluster-admin
-        subjects:
-        - kind: ServiceAccount
-          name: admin-user
-          namespace: kubernetes-dashboard
-        ---
-        apiVersion: v1
-        kind: Secret
-        metadata:
-          name: admin-user
-          namespace: kubernetes-dashboard
-          annotations:
-            kubernetes.io/service-account.name: "admin-user"
-        type: kubernetes.io/service-account-token
-        YAML
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
       changed_when: false
-
-    - name: Wait for admin token secret
-      ansible.builtin.pause:
-        seconds: 10
 
     - name: Get Dashboard admin token
       ansible.builtin.shell: |
@@ -108,6 +59,7 @@
           namespace: kubernetes-dashboard
           annotations:
             nginx.ingress.kubernetes.io/ssl-redirect: "false"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         spec:
           ingressClassName: nginx
           rules:
@@ -120,7 +72,7 @@
                   service:
                     name: kubernetes-dashboard
                     port:
-                      number: 80
+                      number: 443
         YAML
       changed_when: false
 
