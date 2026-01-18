@@ -30,15 +30,6 @@
       ansible.builtin.copy:
         dest: /tmp/dashboard-values.yaml
         content: |
-          kong:
-            enabled: false
-          nginx:
-            enabled: true
-          cert-manager:
-            enabled: false
-          app:
-            ingress:
-              enabled: false
           api:
             containers:
               args:
@@ -66,7 +57,7 @@
           namespace: kubernetes-dashboard
           annotations:
             nginx.ingress.kubernetes.io/ssl-redirect: "false"
-            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         spec:
           ingressClassName: nginx
           rules:
@@ -77,9 +68,9 @@
                 pathType: Prefix
                 backend:
                   service:
-                    name: kubernetes-dashboard-nginx
+                    name: kubernetes-dashboard-kong-proxy
                     port:
-                      number: 80
+                      number: 443
         YAML
       changed_when: false
 
@@ -171,8 +162,8 @@
 
           Host: {{ dashboard_domain }}
           Namespace: kubernetes-dashboard
-          Gateway: nginx (no Kong)
-          Protocol: HTTP
+          Service: kubernetes-dashboard-kong-proxy
+          Protocol: HTTP frontend, HTTPS backend
 
           ================================================
 
